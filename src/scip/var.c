@@ -14473,6 +14473,101 @@ SCIP_RETCODE SCIPvarUpdatePseudocost(
    }
 }
 
+/** updates the discounted pseudo costs of the given variable and the global discounted pseudo costs after a change of
+ *  "solvaldelta" in the variable's solution value and resulting change of "objdelta" in the in the LP's objective value
+ */
+SCIP_RETCODE SCIPvarUpdateDPseudocost(
+   SCIP_VAR*             var,                /**< problem variable */
+   SCIP_SET*             set,                /**< global SCIP settings */
+   SCIP_STAT*            stat,               /**< problem statistics */
+   SCIP_Real             solvaldelta,        /**< difference of variable's new LP value - old LP value */
+   SCIP_Real             objdelta,           /**< difference of new LP's objective value - old LP's objective value */
+   SCIP_Real             weight              /**< weight in (0,1] of this update in discounted pseudo cost sum */
+   )
+{
+   assert(var != NULL);
+   assert(set != NULL);
+   assert(var->scip == set->scip);
+   assert(stat != NULL);
+
+   /* check if history statistics should be collected for a variable */
+   if( !stat->collectvarhistory )
+      return SCIP_OKAY;
+
+   switch( SCIPvarGetStatus(var) )
+   {
+   case SCIP_VARSTATUS_ORIGINAL:
+      if( var->data.original.transvar == NULL )
+      {
+         SCIPerrorMessage("cannot update discounted pseudo costs of original untransformed variable\n");
+         return SCIP_INVALIDDATA;
+      }
+      SCIP_CALL( SCIPvarUpdateDPseudocost(var->data.original.transvar, set, stat, solvaldelta, objdelta, weight) );
+      return SCIP_OKAY;
+
+   case SCIP_VARSTATUS_LOOSE:
+   case SCIP_VARSTATUS_COLUMN:
+      // TODO: OLD Root pseudo cost ?
+
+      /* update history */
+      SCIPhistoryUpdateDPseudocost(var->history, set, solvaldelta, objdelta, weight);
+      SCIPhistoryUpdateDPseudocost(var->historycrun, set, solvaldelta, objdelta, weight);
+      SCIPhistoryUpdateDPseudocost(stat->glbhistory, set, solvaldelta, objdelta, weight);
+      SCIPhistoryUpdateDPseudocost(stat->glbhistorycrun, set, solvaldelta, objdelta, weight);
+
+      /* append history to file */
+#ifdef SCIP_HISTORYTOFILE
+   {
+      FILE* f;
+      char filename[256];
+      SCIP_NODE* currentnode;
+      SCIP_NODE* parentnode;
+      currentnode = SCIPgetFocusNode(set->scip);
+      parentnode = SCIPnodeGetParent(currentnode);
+
+      sprintf(filename, "%s/%s.pse", historypath, SCIPgetProbName(set->scip));
+      f = fopen(filename, "a");
+      if( NULL != f )
+      {
+         fprintf(f, "%lld %s \t %lld \t %lld \t %lld \t %d \t %15.9f \t %.3f\n",
+            ++counter,
+            SCIPvarGetName(var),
+            SCIPnodeGetNumber(currentnode),
+            parentnode != NULL ? SCIPnodeGetNumber(parentnode) : -1,
+            SCIPgetNLPIterations(set->scip),
+            SCIPgetDepth(set->scip),
+            objdelta,
+            solvaldelta);
+         fclose(f);
+      }
+   }
+#endif
+      return SCIP_OKAY;
+
+   case SCIP_VARSTATUS_FIXED:
+      SCIPerrorMessage("cannot update discounted pseudo cost values of a fixed variable\n");
+      return SCIP_INVALIDDATA;
+
+   case SCIP_VARSTATUS_AGGREGATED:
+      assert(!SCIPsetIsZero(set, var->data.aggregate.scalar));
+      SCIP_CALL( SCIPvarUpdateDPseudocost(var->data.aggregate.var, set, stat,
+            solvaldelta/var->data.aggregate.scalar, objdelta, weight) );
+      return SCIP_OKAY;
+
+   case SCIP_VARSTATUS_MULTAGGR:
+      SCIPerrorMessage("cannot update discounted pseudo cost values of a multi-aggregated variable\n");
+      return SCIP_INVALIDDATA;
+
+   case SCIP_VARSTATUS_NEGATED:
+      SCIP_CALL( SCIPvarUpdateDPseudocost(var->negatedvar, set, stat, -solvaldelta, objdelta, weight) );
+      return SCIP_OKAY;
+
+   default:
+      SCIPerrorMessage("unknown variable status\n");
+      return SCIP_INVALIDDATA;
+   }
+}
+
 /** gets the variable's pseudo cost value for the given step size "solvaldelta" in the variable's LP solution value */
 SCIP_Real SCIPvarGetPseudocost(
    SCIP_VAR*             var,                /**< problem variable */
@@ -14512,6 +14607,53 @@ SCIP_Real SCIPvarGetPseudocost(
 
    case SCIP_VARSTATUS_NEGATED:
       return SCIPvarGetPseudocost(var->negatedvar, stat, -solvaldelta);
+
+   default:
+      SCIPerrorMessage("unknown variable status\n");
+      SCIPABORT();
+      return 0.0; /*lint !e527*/
+   }
+}
+
+/** gets the variable's discounted pseudo cost value for the given step size "solvaldelta" in the variable's LP solution value */
+SCIP_Real SCIPvarGetDPseudocost(
+   SCIP_VAR*             var,                /**< problem variable */
+   SCIP_STAT*            stat,               /**< problem statistics */
+   SCIP_Real             solvaldelta         /**< difference of variable's new LP value - old LP value */
+   )
+{
+   SCIP_BRANCHDIR dir;
+
+   assert(var != NULL);
+   assert(stat != NULL);
+
+   switch( SCIPvarGetStatus(var) )
+   {
+   case SCIP_VARSTATUS_ORIGINAL:
+      if( var->data.original.transvar == NULL )
+         return SCIPhistoryGetDPseudocost(stat->glbhistory, solvaldelta);
+      else
+         return SCIPvarGetDPseudocost(var->data.original.transvar, stat, solvaldelta);
+
+   case SCIP_VARSTATUS_LOOSE:
+   case SCIP_VARSTATUS_COLUMN:
+      dir = (solvaldelta >= 0.0 ? SCIP_BRANCHDIR_UPWARDS : SCIP_BRANCHDIR_DOWNWARDS);
+
+      return SCIPhistoryGetDPseudocostCount(var->history, dir) > 0.0
+         ? SCIPhistoryGetDPseudocost(var->history, solvaldelta)
+         : SCIPhistoryGetDPseudocost(stat->glbhistory, solvaldelta);
+
+   case SCIP_VARSTATUS_FIXED:
+      return 0.0;
+
+   case SCIP_VARSTATUS_AGGREGATED:
+      return SCIPvarGetDPseudocost(var->data.aggregate.var, stat, var->data.aggregate.scalar * solvaldelta);
+
+   case SCIP_VARSTATUS_MULTAGGR:
+      return 0.0;
+
+   case SCIP_VARSTATUS_NEGATED:
+      return SCIPvarGetDPseudocost(var->negatedvar, stat, -solvaldelta);
 
    default:
       SCIPerrorMessage("unknown variable status\n");
@@ -14569,6 +14711,55 @@ SCIP_Real SCIPvarGetPseudocostCurrentRun(
    }
 }
 
+/** gets the variable's discounted pseudo cost value for the given step size "solvaldelta" in the variable's LP solution value,
+ *  only using the discounted pseudo cost information of the current run
+ */
+SCIP_Real SCIPvarGetDPseudocostCurrentRun(
+   SCIP_VAR*             var,                /**< problem variable */
+   SCIP_STAT*            stat,               /**< problem statistics */
+   SCIP_Real             solvaldelta         /**< difference of variable's new LP value - old LP value */
+   )
+{
+   SCIP_BRANCHDIR dir;
+
+   assert(var != NULL);
+   assert(stat != NULL);
+
+   switch( SCIPvarGetStatus(var) )
+   {
+   case SCIP_VARSTATUS_ORIGINAL:
+      if( var->data.original.transvar == NULL )
+         return SCIPhistoryGetDPseudocost(stat->glbhistorycrun, solvaldelta);
+      else
+         return SCIPvarGetDPseudocostCurrentRun(var->data.original.transvar, stat, solvaldelta);
+
+   case SCIP_VARSTATUS_LOOSE:
+   case SCIP_VARSTATUS_COLUMN:
+      dir = (solvaldelta >= 0.0 ? SCIP_BRANCHDIR_UPWARDS : SCIP_BRANCHDIR_DOWNWARDS);
+
+      return SCIPhistoryGetDPseudocostCount(var->historycrun, dir) > 0.0
+         ? SCIPhistoryGetDPseudocost(var->historycrun, solvaldelta)
+         : SCIPhistoryGetDPseudocost(stat->glbhistorycrun, solvaldelta);
+
+   case SCIP_VARSTATUS_FIXED:
+      return 0.0;
+
+   case SCIP_VARSTATUS_AGGREGATED:
+      return SCIPvarGetDPseudocostCurrentRun(var->data.aggregate.var, stat, var->data.aggregate.scalar * solvaldelta);
+
+   case SCIP_VARSTATUS_MULTAGGR:
+      return 0.0;
+
+   case SCIP_VARSTATUS_NEGATED:
+      return SCIPvarGetDPseudocostCurrentRun(var->negatedvar, stat, -solvaldelta);
+
+   default:
+      SCIPerrorMessage("unknown variable status\n");
+      SCIPABORT();
+      return 0.0; /*lint !e527*/
+   }
+}
+
 /** gets the variable's (possible fractional) number of pseudo cost updates for the given direction */
 SCIP_Real SCIPvarGetPseudocostCount(
    SCIP_VAR*             var,                /**< problem variable */
@@ -14604,6 +14795,49 @@ SCIP_Real SCIPvarGetPseudocostCount(
 
    case SCIP_VARSTATUS_NEGATED:
       return SCIPvarGetPseudocostCount(var->negatedvar, SCIPbranchdirOpposite(dir));
+
+   default:
+      SCIPerrorMessage("unknown variable status\n");
+      SCIPABORT();
+      return 0.0; /*lint !e527*/
+   }
+}
+
+/** gets the variable's (possible fractional) number of discounted pseudo cost updates for the given direction */
+SCIP_Real SCIPvarGetDPseudocostCount(
+   SCIP_VAR*             var,                /**< problem variable */
+   SCIP_BRANCHDIR        dir                 /**< branching direction (downwards, or upwards) */
+   )
+{
+   assert(var != NULL);
+   assert(dir == SCIP_BRANCHDIR_DOWNWARDS || dir == SCIP_BRANCHDIR_UPWARDS);
+
+   switch( SCIPvarGetStatus(var) )
+   {
+   case SCIP_VARSTATUS_ORIGINAL:
+      if( var->data.original.transvar == NULL )
+         return 0.0;
+      else
+         return SCIPvarGetDPseudocostCount(var->data.original.transvar, dir);
+
+   case SCIP_VARSTATUS_LOOSE:
+   case SCIP_VARSTATUS_COLUMN:
+      return SCIPhistoryGetDPseudocostCount(var->history, dir);
+
+   case SCIP_VARSTATUS_FIXED:
+      return 0.0;
+
+   case SCIP_VARSTATUS_AGGREGATED:
+      if( var->data.aggregate.scalar > 0.0 )
+         return SCIPvarGetDPseudocostCount(var->data.aggregate.var, dir);
+      else
+         return SCIPvarGetDPseudocostCount(var->data.aggregate.var, SCIPbranchdirOpposite(dir));
+
+   case SCIP_VARSTATUS_MULTAGGR:
+      return 0.0;
+
+   case SCIP_VARSTATUS_NEGATED:
+      return SCIPvarGetDPseudocostCount(var->negatedvar, SCIPbranchdirOpposite(dir));
 
    default:
       SCIPerrorMessage("unknown variable status\n");
@@ -14649,6 +14883,51 @@ SCIP_Real SCIPvarGetPseudocostCountCurrentRun(
 
    case SCIP_VARSTATUS_NEGATED:
       return SCIPvarGetPseudocostCountCurrentRun(var->negatedvar, SCIPbranchdirOpposite(dir));
+
+   default:
+      SCIPerrorMessage("unknown variable status\n");
+      SCIPABORT();
+      return 0.0; /*lint !e527*/
+   }
+}
+
+/** gets the variable's (possible fractional) number of discounted pseudo cost updates for the given direction,
+ *  only using the discounted pseudo cost information of the current run
+ */
+SCIP_Real SCIPvarGetDPseudocostCountCurrentRun(
+   SCIP_VAR*             var,                /**< problem variable */
+   SCIP_BRANCHDIR        dir                 /**< branching direction (downwards, or upwards) */
+   )
+{
+   assert(var != NULL);
+   assert(dir == SCIP_BRANCHDIR_DOWNWARDS || dir == SCIP_BRANCHDIR_UPWARDS);
+
+   switch( SCIPvarGetStatus(var) )
+   {
+   case SCIP_VARSTATUS_ORIGINAL:
+      if( var->data.original.transvar == NULL )
+         return 0.0;
+      else
+         return SCIPvarGetDPseudocostCountCurrentRun(var->data.original.transvar, dir);
+
+   case SCIP_VARSTATUS_LOOSE:
+   case SCIP_VARSTATUS_COLUMN:
+      return SCIPhistoryGetDPseudocostCount(var->historycrun, dir);
+
+   case SCIP_VARSTATUS_FIXED:
+      return 0.0;
+
+   case SCIP_VARSTATUS_AGGREGATED:
+      if( var->data.aggregate.scalar > 0.0 )
+         return SCIPvarGetDPseudocostCountCurrentRun(var->data.aggregate.var, dir);
+      else
+         return SCIPvarGetDPseudocostCountCurrentRun(var->data.aggregate.var, SCIPbranchdirOpposite(dir));
+
+   case SCIP_VARSTATUS_MULTAGGR:
+      return 0.0;
+
+   case SCIP_VARSTATUS_NEGATED:
+      return SCIPvarGetDPseudocostCountCurrentRun(var->negatedvar, SCIPbranchdirOpposite(dir));
 
    default:
       SCIPerrorMessage("unknown variable status\n");
@@ -14727,6 +15006,53 @@ SCIP_Real SCIPvarGetPseudocostVariance(
 
    case SCIP_VARSTATUS_NEGATED:
       return SCIPvarGetPseudocostVariance(var->negatedvar, SCIPbranchdirOpposite(dir), onlycurrentrun);
+
+   default:
+      SCIPerrorMessage("unknown variable status\n");
+      SCIPABORT();
+      return 0.0; /*lint !e527*/
+   }
+}
+
+/** gets the an estimate of the variable's discounted pseudo cost variance in direction \p dir */
+SCIP_Real SCIPvarGetDPseudocostVariance(
+   SCIP_VAR*             var,                /**< problem variable */
+   SCIP_BRANCHDIR        dir,                /**< branching direction (downwards, or upwards) */
+   SCIP_Bool             onlycurrentrun      /**< return pseudo cost variance only for current branch and bound run */
+   )
+{
+   assert(var != NULL);
+   assert(dir == SCIP_BRANCHDIR_DOWNWARDS || dir == SCIP_BRANCHDIR_UPWARDS);
+
+   switch( SCIPvarGetStatus(var) )
+   {
+   case SCIP_VARSTATUS_ORIGINAL:
+      if( var->data.original.transvar == NULL )
+         return 0.0;
+      else
+         return SCIPvarGetDPseudocostVariance(var->data.original.transvar, dir, onlycurrentrun);
+
+   case SCIP_VARSTATUS_LOOSE:
+   case SCIP_VARSTATUS_COLUMN:
+      if( onlycurrentrun )
+         return SCIPhistoryGetDPseudocostVariance(var->historycrun, dir);
+      else
+         return SCIPhistoryGetDPseudocostVariance(var->history, dir);
+
+   case SCIP_VARSTATUS_FIXED:
+      return 0.0;
+
+   case SCIP_VARSTATUS_AGGREGATED:
+      if( var->data.aggregate.scalar > 0.0 )
+         return SCIPvarGetDPseudocostVariance(var->data.aggregate.var, dir, onlycurrentrun);
+      else
+         return SCIPvarGetDPseudocostVariance(var->data.aggregate.var, SCIPbranchdirOpposite(dir), onlycurrentrun);
+
+   case SCIP_VARSTATUS_MULTAGGR:
+      return 0.0;
+
+   case SCIP_VARSTATUS_NEGATED:
+      return SCIPvarGetDPseudocostVariance(var->negatedvar, SCIPbranchdirOpposite(dir), onlycurrentrun);
 
    default:
       SCIPerrorMessage("unknown variable status\n");

@@ -47,6 +47,9 @@ struct SCIP_History
    SCIP_Real             pscostcount[2];     /**< nr of (partial) summands in down/upwards pseudo costs (may be fractional) */
    SCIP_Real             pscostweightedmean[2]; /**< weighted mean of (partial) pseudo cost values for down/upwards branching */
    SCIP_Real             pscostvariance[2];  /**< weighted variance of (partial) pseudo cost history for down/upwards branching */
+   SCIP_Real             dpscostcount[2];    /**< nr of (partial) summands in down/upwards discounted pseudo costs (may be fractional) */
+   SCIP_Real             dpscostweightedmean[2]; /**< weighted mean of (partial) discounted pseudo cost values for down/upwards branching */
+   SCIP_Real             dpscostvariance[2]; /**< weighted variance of (partial) discounted pseudo cost history for down/upwards branching */
    SCIP_Real             vsids[2];           /**< degree of how often the variable was reason for a conflict */
    SCIP_Real             conflengthsum[2];   /**< overall length of all active conflicts for which the variable gave reason */
    SCIP_Real             inferencesum[2];    /**< degree of how often branching on the variable lead to inference of another bound */

@@ -87,6 +87,12 @@ void SCIPhistoryReset(
    history->pscostweightedmean[1] = 0.0;
    history->pscostvariance[0] = 0.0;
    history->pscostvariance[1] = 0.0;
+   history->dpscostcount[0] = 0.0;
+   history->dpscostcount[1] = 0.0;
+   history->dpscostweightedmean[0] = 0.0;
+   history->dpscostweightedmean[1] = 0.0;
+   history->dpscostvariance[0] = 0.0;
+   history->dpscostvariance[1] = 0.0;
    history->vsids[0] = 0.0;
    history->vsids[1] = 0.0;
    history->conflengthsum[0] = 0.0;
@@ -128,6 +134,7 @@ void SCIPhistoryUnite(
       d = (switcheddirs ? 1 - i : i);
 
       history->pscostcount[i] += addhistory->pscostcount[d];
+      history->dpscostcount[i] += addhistory->dpscostcount[d];
 
       /* if both histories a count of zero, there is nothing to do */
       if( history->pscostcount[i] > 0.0 )
@@ -155,6 +162,34 @@ void SCIPhistoryUnite(
       {
          assert(history->pscostweightedmean[i] == 0.0);
          assert(history->pscostvariance[i] == 0.0);
+      }
+#endif
+      /* if both histories a discounted count of zero, there is nothing to do */
+      if( history->dpscostcount[i] > 0.0 )
+      {
+         SCIP_Real oldmean;
+
+         oldmean = history->dpscostweightedmean[i];
+
+         /* we update the mean as if the history was one observation with a large weight */
+         history->dpscostweightedmean[i] += addhistory->dpscostcount[d] * (addhistory->dpscostweightedmean[d] - history->dpscostweightedmean[i]) / history->dpscostcount[i];
+
+         /* we update the variance of two sets A and B as S_A+B = S_A + (mu_A)^2 * count_A ...*/
+         /* @todo is there a numerically more stable variant for this merge? */
+         history->dpscostvariance[i] = history->dpscostvariance[i] + oldmean * oldmean * (history->dpscostcount[i] - addhistory->dpscostcount[d]) + \
+               /* S_B + (mu_B)^2 * count_B */
+               addhistory->dpscostvariance[d] + addhistory->dpscostcount[d] * addhistory->dpscostweightedmean[d] * addhistory->dpscostweightedmean[d] -  \
+               /* - count_A+B * mu_A+B^ 2 */
+               history->dpscostcount[i] * history->dpscostweightedmean[i] * history->dpscostweightedmean[i];
+
+         /* slight violations of nonnegativity are numerically possible */
+         history->dpscostvariance[i] = MAX(history->dpscostvariance[i], 0.0);
+      }
+#ifndef NDEBUG
+      else
+      {
+         assert(history->dpscostweightedmean[i] == 0.0);
+         assert(history->dpscostvariance[i] == 0.0);
       }
 #endif
 
@@ -230,6 +265,70 @@ void SCIPhistoryUpdatePseudocost(
 
    SCIPsetDebugMsg(set, "updated pseudo costs of history %p: dir=%d, distance=%g, objdelta=%g, weight=%g  ->  %g/%g\n",
       (void*)history, dir, distance, objdelta, weight, history->pscostcount[dir], history->pscostweightedmean[dir]);
+}
+
+/** updates the pseudo costs for a change of "solvaldelta" in the variable's LP solution value and a change of "objdelta"
+ *  in the LP's objective value
+ */
+void SCIPhistoryUpdateDPseudocost(
+   SCIP_HISTORY*         history,            /**< branching and inference history */
+   SCIP_SET*             set,                /**< global SCIP settings */
+   SCIP_Real             solvaldelta,        /**< difference of variable's new LP value - old LP value */
+   SCIP_Real             objdelta,           /**< difference of new LP's objective value - old LP's objective value */
+   SCIP_Real             weight              /**< weight of this update in discounted pseudo cost sum (added to pscostcount) */
+   )
+{
+   SCIP_Real distance;
+   SCIP_Real eps;
+   SCIP_Real sumcontribution;
+   SCIP_Real olddelta;
+   int dir;
+
+   assert(history != NULL);
+   assert(set != NULL);
+   assert(!SCIPsetIsInfinity(set, REALABS(solvaldelta)));
+   assert(!SCIPsetIsInfinity(set, objdelta));
+   assert(!SCIPsetIsNegative(set, objdelta));
+   assert(0.0 < weight && weight <= 1.0);
+
+   if( SCIPsetIsPositive(set, solvaldelta) )
+   {
+      /* variable's solution value moved upwards */
+      dir = 1;
+      distance = solvaldelta;
+   }
+   else if( SCIPsetIsNegative(set, solvaldelta) )
+   {
+      /* variable's solution value moved downwards */
+      dir = 0;
+      distance = -solvaldelta;
+   }
+   else
+   {
+      /* the variable's solution value didn't change, and the pseudo costs cannot be updated */
+      return;
+   }
+   assert(dir == 0 || dir == 1);
+   assert(SCIPsetIsPositive(set, distance));
+
+   /* apply a lower limit on the distance to avoid numerical instabilities due to very large summands */
+   eps = SCIPsetPseudocosteps(set);
+   distance = MAX(distance, eps);
+
+   /* slightly increase objective delta, s.t. discounted pseudo cost values are not zero, and fractionalities are
+    * always used at least a bit
+    */
+   objdelta += SCIPsetPseudocostdelta(set);
+
+   sumcontribution = objdelta/distance;
+   /* update the pseudo cost values */
+   olddelta = sumcontribution - history->dpscostweightedmean[dir];
+   history->dpscostcount[dir] += weight;
+   history->dpscostweightedmean[dir] += weight * olddelta / history->dpscostcount[dir];
+   history->dpscostvariance[dir] = history->dpscostvariance[dir] + weight * olddelta * (sumcontribution - history->dpscostweightedmean[dir]);
+
+   SCIPsetDebugMsg(set, "updated discounted pseudo costs of history %p: dir=%d, distance=%g, objdelta=%g, weight=%g  ->  %g/%g\n",
+      (void*)history, dir, distance, objdelta, weight, history->dpscostcount[dir], history->dpscostweightedmean[dir]);
 }
 
 /**@name Value based history
@@ -409,6 +508,9 @@ SCIP_Real* SCIPvaluehistoryGetValues(
 #undef SCIPhistoryGetPseudocost
 #undef SCIPhistoryGetPseudocostCount
 #undef SCIPhistoryIsPseudocostEmpty
+#undef SCIPhistoryGetDPseudocost
+#undef SCIPhistoryGetDPseudocostCount
+#undef SCIPhistoryIsDPseudocostEmpty
 #undef SCIPhistoryIncVSIDS
 #undef SCIPhistoryScaleVSIDS
 #undef SCIPhistoryGetVSIDS
@@ -456,6 +558,20 @@ SCIP_Real SCIPhistoryGetPseudocost(
       return -solvaldelta * (history->pscostcount[0] > 0.0 ? history->pscostweightedmean[0] : 1.0);
 }
 
+/** returns the expected discounted dual gain for moving the corresponding variable by "solvaldelta" */
+SCIP_Real SCIPhistoryGetDPseudocost(
+   SCIP_HISTORY*         history,            /**< branching and inference history */
+   SCIP_Real             solvaldelta         /**< difference of variable's new LP value - old LP value */
+   )
+{
+   assert(history != NULL);
+
+   if( solvaldelta >= 0.0 )
+      return solvaldelta * (history->dpscostcount[1] > 0.0 ? history->dpscostweightedmean[1] : 1.0);
+   else
+      return -solvaldelta * (history->dpscostcount[0] > 0.0 ? history->dpscostweightedmean[0] : 1.0);
+}
+
 /** returns the variance of pseudo costs about the mean. */
 SCIP_Real SCIPhistoryGetPseudocostVariance(
    SCIP_HISTORY*         history,            /**< branching and inference history */
@@ -478,6 +594,28 @@ SCIP_Real SCIPhistoryGetPseudocostVariance(
       return 0.0;
 }
 
+/** returns the variance of discounted pseudo costs about the mean. */
+SCIP_Real SCIPhistoryGetDPseudocostVariance(
+   SCIP_HISTORY*         history,            /**< branching and inference history */
+   SCIP_BRANCHDIR        direction           /**< direction of variable: 1 for upwards history, 0 for downwards history */
+   )
+{
+   int dir;
+   SCIP_Real correctionfactor;
+
+   assert(history != NULL);
+   assert(direction == SCIP_BRANCHDIR_UPWARDS || direction == SCIP_BRANCHDIR_DOWNWARDS);
+
+   dir = (direction == SCIP_BRANCHDIR_UPWARDS ? 1 : 0);
+   correctionfactor = history->dpscostcount[dir] - 1.0;
+
+   /** @todo for an unbiased estimate of the weighted sample variance, we need a correction factor that uses the sum of squared weights */
+   if( correctionfactor > 0.9 )
+      return history->dpscostvariance[dir] / correctionfactor;
+   else
+      return 0.0;
+}
+
 /** returns the (possible fractional) number of (partial) pseudo cost updates performed on this pseudo cost entry in 
  *  the given branching direction
  */
@@ -493,6 +631,21 @@ SCIP_Real SCIPhistoryGetPseudocostCount(
    return history->pscostcount[dir];
 }
 
+/** returns the (possible fractional) number of (partial) discounted pseudo cost updates performed on this pseudo cost entry in 
+ *  the given branching direction
+ */
+SCIP_Real SCIPhistoryGetDPseudocostCount(
+   SCIP_HISTORY*         history,            /**< branching and inference history */
+   SCIP_BRANCHDIR        dir                 /**< branching direction (downwards, or upwards) */
+   )
+{
+   assert(history != NULL);
+   assert(dir == SCIP_BRANCHDIR_DOWNWARDS || dir == SCIP_BRANCHDIR_UPWARDS);
+   assert((int)dir == 0 || (int)dir == 1);
+
+   return history->dpscostcount[dir];
+}
+
 /** returns whether the pseudo cost entry is empty in the given branching direction (whether no value was added yet) */
 SCIP_Bool SCIPhistoryIsPseudocostEmpty(
    SCIP_HISTORY*         history,            /**< branching and inference history */
@@ -504,6 +657,19 @@ SCIP_Bool SCIPhistoryIsPseudocostEmpty(
    assert((int)dir == 0 || (int)dir == 1);
 
    return (history->pscostcount[dir] == 0.0);
+}
+
+/** returns whether the pseudo cost entry is empty in the given branching direction (whether no value was added yet) */
+SCIP_Bool SCIPhistoryIsDPseudocostEmpty(
+   SCIP_HISTORY*         history,            /**< branching and inference history */
+   SCIP_BRANCHDIR        dir                 /**< branching direction (downwards, or upwards) */
+   )
+{
+   assert(history != NULL);
+   assert(dir == SCIP_BRANCHDIR_DOWNWARDS || dir == SCIP_BRANCHDIR_UPWARDS);
+   assert((int)dir == 0 || (int)dir == 1);
+
+   return (history->dpscostcount[dir] == 0.0);
 }
 
 /** increases the conflict score of the history entry by the given weight */

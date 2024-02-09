@@ -1244,8 +1244,27 @@ SCIP_RETCODE SCIPvarUpdatePseudocost(
    SCIP_Real             weight              /**< weight in (0,1] of this update in pseudo cost sum */
    );
 
+/** updates the discounted pseudo costs of the given variable and the global discounted pseudo costs after a change of
+ *  "solvaldelta" in the variable's solution value and resulting change of "objdelta" in the in the LP's objective value
+ */
+SCIP_RETCODE SCIPvarUpdateDPseudocost(
+   SCIP_VAR*             var,                /**< problem variable */
+   SCIP_SET*             set,                /**< global SCIP settings */
+   SCIP_STAT*            stat,               /**< problem statistics */
+   SCIP_Real             solvaldelta,        /**< difference of variable's new LP value - old LP value */
+   SCIP_Real             objdelta,           /**< difference of new LP's objective value - old LP's objective value */
+   SCIP_Real             weight              /**< weight in (0,1] of this update in pseudo cost sum */
+   );
+
 /** gets the variable's pseudo cost value for the given step size "solvaldelta" in the variable's LP solution value */
 SCIP_Real SCIPvarGetPseudocost(
+   SCIP_VAR*             var,                /**< problem variable */
+   SCIP_STAT*            stat,               /**< problem statistics */
+   SCIP_Real             solvaldelta         /**< difference of variable's new LP value - old LP value */
+   );
+
+/** gets the variable's discounted pseudo cost value for the given step size "solvaldelta" in the variable's LP solution value */
+SCIP_Real SCIPvarGetDPseudocost(
    SCIP_VAR*             var,                /**< problem variable */
    SCIP_STAT*            stat,               /**< problem statistics */
    SCIP_Real             solvaldelta         /**< difference of variable's new LP value - old LP value */
@@ -1260,8 +1279,23 @@ SCIP_Real SCIPvarGetPseudocostCurrentRun(
    SCIP_Real             solvaldelta         /**< difference of variable's new LP value - old LP value */
    );
 
+/** gets the variable's discounted pseudo cost value for the given step size "solvaldelta" in the variable's LP solution value,
+ *  only using the discounted pseudo cost information of the current run
+ */
+SCIP_Real SCIPvarGetDPseudocostCurrentRun(
+   SCIP_VAR*             var,                /**< problem variable */
+   SCIP_STAT*            stat,               /**< problem statistics */
+   SCIP_Real             solvaldelta         /**< difference of variable's new LP value - old LP value */
+   );
+
 /** gets the variable's (possible fractional) number of pseudo cost updates for the given direction */
 SCIP_Real SCIPvarGetPseudocostCount(
+   SCIP_VAR*             var,                /**< problem variable */
+   SCIP_BRANCHDIR        dir                 /**< branching direction (downwards, or upwards) */
+   );
+
+/** gets the variable's (possible fractional) number of discounted pseudo cost updates for the given direction */
+SCIP_Real SCIPvarGetDPseudocostCount(
    SCIP_VAR*             var,                /**< problem variable */
    SCIP_BRANCHDIR        dir                 /**< branching direction (downwards, or upwards) */
    );
@@ -1270,6 +1304,14 @@ SCIP_Real SCIPvarGetPseudocostCount(
  *  only using the pseudo cost information of the current run
  */
 SCIP_Real SCIPvarGetPseudocostCountCurrentRun(
+   SCIP_VAR*             var,                /**< problem variable */
+   SCIP_BRANCHDIR        dir                 /**< branching direction (downwards, or upwards) */
+   );
+
+/** gets the variable's (possible fractional) number of discounted pseudo cost updates for the given direction,
+ *  only using the discounted pseudo cost information of the current run
+ */
+SCIP_Real SCIPvarGetDPseudocostCountCurrentRun(
    SCIP_VAR*             var,                /**< problem variable */
    SCIP_BRANCHDIR        dir                 /**< branching direction (downwards, or upwards) */
    );
@@ -1285,6 +1327,13 @@ SCIP_Real SCIPvarGetMinPseudocostScore(
 
 /** gets the an estimate of the variable's pseudo cost variance in direction \p dir */
 SCIP_Real SCIPvarGetPseudocostVariance(
+   SCIP_VAR*             var,                /**< problem variable */
+   SCIP_BRANCHDIR        dir,                /**< branching direction (downwards, or upwards) */
+   SCIP_Bool             onlycurrentrun      /**< return pseudo cost variance only for current branch and bound run */
+   );
+
+/** gets the an estimate of the variable's pseudo cost variance in direction \p dir */
+SCIP_Real SCIPvarGetDPseudocostVariance(
    SCIP_VAR*             var,                /**< problem variable */
    SCIP_BRANCHDIR        dir,                /**< branching direction (downwards, or upwards) */
    SCIP_Bool             onlycurrentrun      /**< return pseudo cost variance only for current branch and bound run */
@@ -1306,6 +1355,8 @@ SCIP_Real SCIPvarCalcPscostConfidenceBound(
    SCIP_CONFIDENCELEVEL  clevel              /**< confidence level for the interval */
    );
 
+// TODO: replicate this method above?
+
 /** check if the current pseudo cost relative error in a direction violates the given threshold. The Relative
  *  Error is calculated at a specific confidence level
  */
@@ -1316,6 +1367,8 @@ SCIP_Bool SCIPvarIsPscostRelerrorReliable(
    SCIP_Real             threshold,          /**< threshold for relative errors to be considered reliable (enough) */
    SCIP_CONFIDENCELEVEL  clevel              /**< a given confidence level */
    );
+
+// TODO: replicate this method above?
 
 /** check if variable pseudo-costs have a significant difference in location. The significance depends on
  *  the choice of \p clevel and on the kind of tested hypothesis. The one-sided hypothesis, which
@@ -1347,6 +1400,8 @@ SCIP_Bool SCIPvarSignificantPscostDifference(
    SCIP_Bool             onesided            /**< should a one-sided hypothesis y >= x be tested? */
    );
 
+// TODO: replicate this method above?
+
 /** tests at a given confidence level whether the variable pseudo-costs only have a small probability to
  *  exceed a \p threshold. This is useful to determine if past observations provide enough evidence
  *  to skip an expensive strong-branching step if there is already a candidate that has been proven to yield an improvement
@@ -1370,6 +1425,8 @@ SCIP_Bool SCIPvarPscostThresholdProbabilityTest(
    SCIP_BRANCHDIR        dir,                /**< branching direction */
    SCIP_CONFIDENCELEVEL  clevel              /**< confidence level for rejecting hypothesis */
    );
+
+// TODO: replicate this method above?
 
 /** increases the VSIDS of the variable by the given weight */
 SCIP_RETCODE SCIPvarIncVSIDS(

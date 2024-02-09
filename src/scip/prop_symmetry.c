@@ -3,7 +3,7 @@
 /*                  This file is part of the program and library             */
 /*         SCIP --- Solving Constraint Integer Programs                      */
 /*                                                                           */
-/*  Copyright (c) 2002-2023 Zuse Institute Berlin (ZIB)                      */
+/*  Copyright (c) 2002-2024 Zuse Institute Berlin (ZIB)                      */
 /*                                                                           */
 /*  Licensed under the Apache License, Version 2.0 (the "License");          */
 /*  you may not use this file except in compliance with the License.         */
@@ -3136,7 +3136,7 @@ SCIP_RETCODE addStrongSBCsSubgroup(
 
       SCIP_CALL( SCIPcreateConsLinear(scip, &cons, name, 2, vars, vals, 0.0,
             SCIPinfinity(scip), propdata->conssaddlp, propdata->conssaddlp, TRUE,
-            FALSE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE) );
+            TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE) );
 
       SCIP_CALL( SCIPaddCons(scip, cons) );
 
@@ -3318,7 +3318,7 @@ SCIP_RETCODE addWeakSBCsSubgroup(
 
          SCIP_CALL( SCIPcreateConsLinear(scip, &cons, name, 2, vars, vals, 0.0,
                SCIPinfinity(scip), propdata->conssaddlp, propdata->conssaddlp, TRUE,
-               FALSE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE) );
+               TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE) );
 
          SCIP_CALL( SCIPaddCons(scip, cons) );
 
@@ -5282,7 +5282,7 @@ SCIP_RETCODE addOrbitopesDynamic(
 
          /* enforce, but do not check */
          SCIP_CALL( SCIPcreateConsLinear(scip, &cons, name, 2, consvars, conscoefs, -SCIPinfinity(scip), 0.0,
-               propdata->conssaddlp, propdata->conssaddlp, TRUE, FALSE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE ) );
+               propdata->conssaddlp, propdata->conssaddlp, TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE ) );
 
          SCIP_CALL( SCIPaddCons(scip, cons) );
          propdata->genlinconss[propdata->ngenlinconss++] = cons;

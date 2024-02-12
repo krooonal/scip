@@ -34,6 +34,7 @@ set(scipsources
     scip/branch_allfullstrong.c
     scip/branch_cloud.c
     scip/branch_distribution.c
+    scip/branch_dpscost.c
     scip/branch_fullstrong.c
     scip/branch_gomory.c
     scip/branch_inference.c

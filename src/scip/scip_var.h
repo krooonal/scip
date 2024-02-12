@@ -3408,6 +3408,27 @@ SCIP_Real SCIPgetVarPseudocostScore(
    SCIP_Real             solval              /**< variable's LP solution value */
    );
 
+/** gets the variable's discounted pseudo cost score value for the given LP solution value
+ *
+ *  @return the variable's discounted pseudo cost score value for the given LP solution value
+ *
+ *  @pre This method can be called if @p scip is in one of the following stages:
+ *       - \ref SCIP_STAGE_INITPRESOLVE
+ *       - \ref SCIP_STAGE_PRESOLVING
+ *       - \ref SCIP_STAGE_EXITPRESOLVE
+ *       - \ref SCIP_STAGE_PRESOLVED
+ *       - \ref SCIP_STAGE_INITSOLVE
+ *       - \ref SCIP_STAGE_SOLVING
+ *       - \ref SCIP_STAGE_SOLVED
+ */
+SCIP_EXPORT
+SCIP_Real SCIPgetVarDPseudocostScore(
+   SCIP*                 scip,               /**< SCIP data structure */
+   SCIP_VAR*             var,                /**< problem variable */
+   SCIP_Real             solval,             /**< variable's LP solution value */
+   SCIP_Real             discountfac         /**< discount factor for discounted pseudocost */
+   );
+
 /** gets the variable's pseudo cost score value for the given LP solution value,
  *  only using the pseudo cost information of the current run
  *

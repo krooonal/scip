@@ -184,7 +184,7 @@ SCIP_Bool SCIPhistoryIsPseudocostEmpty(
    );
 
 /** returns whether the discounted pseudo cost entry is empty in the given branching direction (whether no value was added yet) */
-SCIP_Bool SCIPhistoryIsPseudocostEmpty(
+SCIP_Bool SCIPhistoryIsDPseudocostEmpty(
    SCIP_HISTORY*         history,            /**< branching and inference history */
    SCIP_BRANCHDIR        dir                 /**< branching direction (downwards, or upwards) */
    );

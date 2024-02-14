@@ -1154,7 +1154,9 @@ SCIP_RETCODE updatePseudocost(
             }
          }
       }
-      
+
+      /* free the buffer for the collected bound changes */
+      SCIPsetFreeBufferArray(set, &updates);
    }
 
    return SCIP_OKAY;

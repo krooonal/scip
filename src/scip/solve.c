@@ -1104,10 +1104,9 @@ SCIP_RETCODE updatePseudocost(
                         updates[nupdates] = &boundchgs[i];
                         nupdates++;
 
-                        /* all discounted pseudo cost updates are valid for now as long as we deal with integer variables. 
-                        * TODO: we can use current node LP solution value and ancestor branching point to evaluate validity.
-                        */
-                        if(SCIPvarGetType(var) != SCIP_VARTYPE_CONTINUOUS)
+                        /* check for valid pseudocost updates for integer variables. */
+                        if(isPseudocostUpdateValid(var, set, boundchgs[i].data.branchingdata.lpsolval, updateintegers, updatecontinuous) && 
+                           SCIPvarGetType(var) != SCIP_VARTYPE_CONTINUOUS)
                         {
                            var->pseudocostflag = PSEUDOCOST_UPDATE; /*lint !e641*/
                            nvalidupdates++;
